@@ -2,321 +2,392 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Super Mario</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body {
-  background:#222;
+* { margin:0; padding:0; box-sizing:border-box; touch-action:none; }
+html,body {
+  background:#111;
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:center;
+  width:100%;
+  height:100%;
   min-height:100vh;
+  overflow:hidden;
   font-family:monospace;
 }
 #hud {
   color:#fff;
-  font-size:14px;
+  font-size:13px;
   font-weight:bold;
-  margin-bottom:6px;
+  margin-bottom:4px;
   display:flex;
-  gap:30px;
+  gap:20px;
   letter-spacing:1px;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+#canvasWrap {
+  position:relative;
+  width:100%;
+  max-width:800px;
 }
 canvas {
   display:block;
-  border:3px solid #555;
+  width:100%;
+  height:auto;
+  border:2px solid #555;
 }
 #msg {
-  margin-top:10px;
+  margin-top:6px;
   color:#ff0;
-  font-size:13px;
+  font-size:12px;
   font-weight:bold;
-  min-height:20px;
+  min-height:18px;
   text-align:center;
+  padding:0 10px;
+}
+
+/* Touch Controls */
+#controls {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  width:100%;
+  max-width:800px;
+  padding:8px 16px;
+  gap:10px;
+  margin-top:4px;
+}
+.dpad {
+  display:flex;
+  gap:6px;
+}
+.btn {
+  width:64px;
+  height:64px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.18);
+  border:2px solid rgba(255,255,255,0.35);
+  color:#fff;
+  font-size:26px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  user-select:none;
+  -webkit-user-select:none;
+  cursor:pointer;
+  active:background:rgba(255,255,255,0.4);
+}
+.btn:active, .btn.pressed {
+  background:rgba(255,255,255,0.4);
+  border-color:#fff;
+}
+#jumpBtn {
+  width:74px;
+  height:74px;
+  background:rgba(229,37,33,0.55);
+  border-color:rgba(229,37,33,0.8);
+  font-size:18px;
+  font-weight:bold;
+  letter-spacing:0.5px;
+}
+#jumpBtn:active, #jumpBtn.pressed {
+  background:rgba(229,37,33,0.85);
 }
 </style>
 </head>
 <body>
+
 <div id="hud">
   <span>SCORE: <span id="sc">0</span></span>
   <span>MÜNZEN: <span id="co">0</span></span>
   <span>LIVES: <span id="li">3</span></span>
 </div>
-<canvas id="c" width="800" height="450"></canvas>
-<div id="msg">Drücke ENTER oder SPACE zum Starten</div>
+
+<div id="canvasWrap">
+  <canvas id="c" width="800" height="420"></canvas>
+</div>
+
+<div id="msg">Drücke SPACE / ENTER oder tippe JUMP zum Starten</div>
+
+<div id="controls">
+  <div class="dpad">
+    <div class="btn" id="leftBtn">◀</div>
+    <div class="btn" id="rightBtn">▶</div>
+  </div>
+  <div class="btn" id="jumpBtn">JUMP</div>
+</div>
 
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-const W = 800, H = 450;
+const W = 800, H = 420;
 const TILE = 40;
-const GROUND_Y = H - TILE;
+const GY = H - TILE; // ground y
 
-const COL = {
-  sky:'#5c94fc', cloud:'#fff', hill:'#2d8c00',
-  ground:'#c84c00', groundLight:'#e86820',
-  brick:'#b44000', brickLight:'#d05000',
-  qBlock:'#f5a800', qShine:'#ffd060',
-  used:'#888', usedLight:'#aaa',
-  pipe:'#008800', pipeLight:'#00bb00',
-  marioRed:'#e52521', marioBrown:'#6b3000',
-  marioSkin:'#ffc080', marioBlue:'#195fcb',
-  goomba:'#8b4513', goombaFoot:'#5c2d00',
-  coin:'#ffd700', coinShine:'#fff8a0',
-  flag:'#00aa00', flagPole:'#aaa'
+// ─── Input ───────────────────────────────────────────────────
+const keys = { left:false, right:false, jump:false };
+let jumpConsumed = false;
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if(e.code==='ArrowLeft')  keys.left=true;
+  if(e.code==='ArrowRight') keys.right=true;
+  if(e.code==='Space'||e.code==='ArrowUp') {
+    if(!keys.jump) jumpConsumed=false;
+    keys.jump=true;
+  }
+  if(['Space','ArrowUp','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  if((e.code==='Space'||e.code==='Enter') && !running) startGame();
+});
+document.addEventListener('keyup', e => {
+  if(e.code==='ArrowLeft')  keys.left=false;
+  if(e.code==='ArrowRight') keys.right=false;
+  if(e.code==='Space'||e.code==='ArrowUp'){ keys.jump=false; jumpConsumed=false; }
+});
+
+// Touch buttons
+function bindBtn(id, key) {
+  const el = document.getElementById(id);
+  const press   = e => { e.preventDefault(); keys[key]=true;  if(key==='jump'){ jumpConsumed=false; if(!running) startGame(); } el.classList.add('pressed'); };
+  const release = e => { e.preventDefault(); keys[key]=false; if(key==='jump') jumpConsumed=false; el.classList.remove('pressed'); };
+  el.addEventListener('touchstart', press,   {passive:false});
+  el.addEventListener('touchend',   release, {passive:false});
+  el.addEventListener('touchcancel',release, {passive:false});
+  el.addEventListener('mousedown',  press);
+  el.addEventListener('mouseup',    release);
+  el.addEventListener('mouseleave', release);
+}
+bindBtn('leftBtn',  'left');
+bindBtn('rightBtn', 'right');
+bindBtn('jumpBtn',  'jump');
+
+// ─── Colors ──────────────────────────────────────────────────
+const C = {
+  sky:'#5c94fc',
+  ground:'#c84c00', groundL:'#e86820',
+  brick:'#b44000',  brickL:'#d45000',
+  q:'#f5a800',      qL:'#ffd060',
+  used:'#777',      usedL:'#aaa',
+  pipe:'#008800',   pipeL:'#00bb00',
+  mR:'#e52521', mB:'#195fcb', mS:'#ffc080', mBr:'#6b3000',
+  gB:'#8b4513', gF:'#5c2d00',
+  coin:'#ffd700', coinS:'#fffacc',
+  flagP:'#bbb', flagC:'#00aa00'
 };
 
-const keys = {};
-document.addEventListener('keydown', e => {
-  keys[e.code] = true;
-  if(['Space','ArrowUp','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
-  if((e.code==='Space'||e.code==='Enter') && !gameRunning) startGame();
-});
-document.addEventListener('keyup', e => keys[e.code] = false);
+// ─── Draw helpers ─────────────────────────────────────────────
+function box(x,y,w,h,col){ ctx.fillStyle=col; ctx.fillRect(x,y,w,h); }
 
-function r(x,y,w,h,col){ ctx.fillStyle=col; ctx.fillRect(x,y,w,h); }
-
-function drawTile(x, y, type) {
+function drawTile(x,y,type){
+  const T=TILE;
   if(type==='ground'){
-    r(x,y,TILE,TILE,COL.ground);
-    r(x+2,y+2,TILE-4,TILE-4,COL.groundLight);
-    ctx.fillStyle=COL.ground;
-    for(let i=10;i<TILE;i+=10) ctx.fillRect(x+i,y+2,2,TILE-4);
-    ctx.fillRect(x+2,y+TILE/2,TILE-4,2);
+    box(x,y,T,T,C.ground); box(x+2,y+2,T-4,T-4,C.groundL);
+    ctx.fillStyle=C.ground;
+    for(let i=10;i<T;i+=10) ctx.fillRect(x+i,y+2,2,T-4);
+    ctx.fillRect(x+2,y+T/2,T-4,2);
   } else if(type==='brick'){
-    r(x,y,TILE,TILE,COL.brick);
-    r(x+2,y+2,TILE-4,17,COL.brickLight);
-    r(x+2,y+21,TILE-4,17,COL.brickLight);
-    ctx.fillStyle=COL.brick;
-    ctx.fillRect(x+TILE/2,y+2,2,17);
-    ctx.fillRect(x+11,y+21,2,17);
-    ctx.fillRect(x+TILE-13,y+21,2,17);
+    box(x,y,T,T,C.brick);
+    box(x+2,y+2,T-4,16,C.brickL); box(x+2,y+22,T-4,16,C.brickL);
+    ctx.fillStyle=C.brick;
+    ctx.fillRect(x+T/2,y+2,2,16); ctx.fillRect(x+10,y+22,2,16); ctx.fillRect(x+T-12,y+22,2,16);
   } else if(type==='question'){
-    r(x,y,TILE,TILE,COL.qBlock);
-    r(x+3,y+3,TILE-6,TILE-6,COL.qShine);
-    ctx.fillStyle='#fff'; ctx.font='bold 22px serif';
-    ctx.fillText('?',x+12,y+29);
+    box(x,y,T,T,C.q); box(x+3,y+3,T-6,T-6,C.qL);
+    ctx.fillStyle='#fff'; ctx.font='bold 22px serif'; ctx.fillText('?',x+12,y+29);
   } else if(type==='used'){
-    r(x,y,TILE,TILE,COL.used);
-    r(x+3,y+3,TILE-6,TILE-6,COL.usedLight);
+    box(x,y,T,T,C.used); box(x+3,y+3,T-6,T-6,C.usedL);
   } else if(type==='pipe'){
-    r(x+6,y,TILE-12,TILE,COL.pipe);
-    r(x+8,y+4,TILE-18,TILE-4,COL.pipeLight);
+    box(x+6,y,T-12,T,C.pipe); box(x+8,y+4,T-18,T-4,C.pipeL);
   } else if(type==='pipetop'){
-    r(x,y,TILE,18,COL.pipe);
-    r(x+3,y+3,TILE-6,12,COL.pipeLight);
-    r(x+6,y+18,TILE-12,TILE-18,COL.pipe);
-    r(x+8,y+20,TILE-18,TILE-22,COL.pipeLight);
+    box(x,y,T,17,C.pipe); box(x+3,y+3,T-6,11,C.pipeL);
+    box(x+6,y+17,T-12,T-17,C.pipe); box(x+8,y+19,T-18,T-21,C.pipeL);
   }
 }
 
-function drawMario(x, y, dir, frame, dead) {
-  const pw=32, ph=44;
+function drawMario(x,y,dir,fr,dead){
+  const pw=32,ph=44;
   ctx.save();
-  if(dir<0){ ctx.translate(x+pw,0); ctx.scale(-1,1); x=0; }
-  const f=Math.floor(frame)%2;
-  // Muetze
-  r(x+6,y,pw-8,10,COL.marioRed);
-  r(x+2,y+5,pw-2,8,COL.marioRed);
-  // Gesicht
-  r(x+4,y+12,pw-8,12,COL.marioSkin);
+  if(dir<0){ctx.translate(x+pw,0);ctx.scale(-1,1);x=0;}
+  const f=Math.floor(fr)%2;
+  box(x+6,y,pw-8,10,C.mR); box(x+2,y+5,pw-2,8,C.mR);
+  box(x+4,y+12,pw-8,12,C.mS);
   ctx.fillStyle='#000'; ctx.fillRect(x+pw-14,y+14,5,5);
-  ctx.fillStyle=COL.marioBrown; ctx.fillRect(x+5,y+20,pw-8,4);
-  // Koerper
-  r(x+4,y+24,pw-8,12,COL.marioBlue);
-  // Beine
-  const l1= dead ? x+4 : (f===0?x+4:x+8);
-  const l2= dead ? x+pw-14 : (f===0?x+pw-14:x+pw-18);
-  r(l1,y+36,10,ph-36,COL.marioRed);
-  r(l2,y+36,10,ph-36,COL.marioRed);
-  ctx.fillStyle=COL.marioBrown;
-  ctx.fillRect(l1-2,y+ph-6,14,6);
-  ctx.fillRect(l2-2,y+ph-6,14,6);
+  ctx.fillStyle=C.mBr; ctx.fillRect(x+5,y+20,pw-8,4);
+  box(x+4,y+24,pw-8,12,C.mB);
+  const l1=dead?x+4:(f===0?x+4:x+8), l2=dead?x+pw-14:(f===0?x+pw-14:x+pw-18);
+  box(l1,y+36,10,ph-36,C.mR); box(l2,y+36,10,ph-36,C.mR);
+  ctx.fillStyle=C.mBr;
+  ctx.fillRect(l1-2,y+ph-6,14,6); ctx.fillRect(l2-2,y+ph-6,14,6);
   ctx.restore();
 }
 
-function drawGoomba(x,y,frame,squished){
-  if(squished){ r(x,y+30,36,6,COL.goomba); return; }
-  const f=Math.floor(frame)%2;
-  r(x+2,y,32,20,COL.goomba);
-  r(x,y+20,36,16,COL.goomba);
-  r(x+4,y+5,7,7,COL.marioSkin);
-  r(x+25,y+5,7,7,COL.marioSkin);
+function drawGoomba(x,y,fr,sq){
+  if(sq){box(x+2,y+30,32,6,C.gB);return;}
+  const f=Math.floor(fr)%2;
+  box(x+3,y,30,20,C.gB); box(x,y+20,36,16,C.gB);
+  box(x+4,y+5,7,7,C.mS); box(x+25,y+5,7,7,C.mS);
   ctx.fillStyle='#000'; ctx.fillRect(x+5,y+6,4,4); ctx.fillRect(x+26,y+6,4,4);
-  r(x+6,y+17,5,3,'#fff'); r(x+25,y+17,5,3,'#fff');
-  const lx1=f===0?x+4:x+8, lx2=f===0?x+20:x+16;
-  r(lx1,y+36,12,f===0?14:10,COL.goombaFoot);
-  r(lx2,y+36,12,f===0?14:10,COL.goombaFoot);
+  box(x+7,y+18,5,3,'#fff'); box(x+24,y+18,5,3,'#fff');
+  const lx1=f===0?x+3:x+7, lx2=f===0?x+20:x+16;
+  box(lx1,y+36,12,10,C.gF); box(lx2,y+36,12,10,C.gF);
 }
 
-function drawCoin(x,y,rad){
-  ctx.fillStyle=COL.coin;
-  ctx.beginPath(); ctx.arc(x,y,rad,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=COL.coinShine;
-  ctx.beginPath(); ctx.arc(x-rad*0.25,y-rad*0.25,rad*0.4,0,Math.PI*2); ctx.fill();
+function drawCoin(x,y,r){
+  ctx.fillStyle=C.coin; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=C.coinS; ctx.beginPath(); ctx.arc(x-r*.25,y-r*.25,r*.4,0,Math.PI*2); ctx.fill();
 }
 
 function drawCloud(x,y){
-  ctx.fillStyle=COL.cloud;
-  [[0,0,20],[22,-14,16],[44,0,20],[15,-8,12],[30,-8,12]].forEach(([ox,oy,rad])=>{
-    ctx.beginPath(); ctx.arc(x+ox,y+oy,rad,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff';
+  [[0,0,20],[22,-13,16],[44,0,20],[14,-8,12],[30,-8,12]].forEach(([ox,oy,r])=>{
+    ctx.beginPath(); ctx.arc(x+ox,y+oy,r,0,Math.PI*2); ctx.fill();
   });
 }
 
-function drawHill(x,y,rad){
-  ctx.fillStyle=COL.hill;
-  ctx.beginPath(); ctx.arc(x,y,rad,Math.PI,0); ctx.fill();
+function drawHill(x,y,r){
+  ctx.fillStyle='#2d8c00';
+  ctx.beginPath(); ctx.arc(x,y,r,Math.PI,0); ctx.fill();
 }
 
-// ---- Level ----
+// ─── Level builder ───────────────────────────────────────────
 function buildLevel(){
-  const tiles=[], enemies=[], coins=[], qblocks=[];
+  const tiles=[], enemies=[], coins=[];
 
+  // Ground (gap at tile 14-15)
   for(let i=0;i<65;i++){
     if(i>=14&&i<=15) continue;
-    tiles.push({x:i*TILE,y:GROUND_Y,w:TILE,h:TILE,type:'ground'});
+    tiles.push({x:i*TILE,y:GY,w:TILE,h:TILE,type:'ground'});
   }
-
+  // Brick platforms
   [[5,5],[6,5],[8,5],[10,5],[11,5],[12,5],
    [32,7],[33,7],[34,7],[36,5],[37,5],[38,5]].forEach(([tx,ty])=>
-    tiles.push({x:tx*TILE,y:GROUND_Y-ty*TILE,w:TILE,h:TILE,type:'brick'}));
-
+    tiles.push({x:tx*TILE,y:GY-ty*TILE,w:TILE,h:TILE,type:'brick'}));
+  // Question blocks
   [[7,5],[9,5],[7,8],[14,5],[16,5],[25,6],[30,6]].forEach(([tx,ty])=>{
-    const q={x:tx*TILE,y:GROUND_Y-ty*TILE,w:TILE,h:TILE,type:'question',hit:false};
-    tiles.push(q); qblocks.push(q);
+    tiles.push({x:tx*TILE,y:GY-ty*TILE,w:TILE,h:TILE,type:'question',hit:false});
   });
-
+  // Pipes
   [[18,2],[22,3],[27,2]].forEach(([tx,ph])=>{
     for(let p=0;p<ph;p++)
-      tiles.push({x:tx*TILE,y:GROUND_Y-(p+1)*TILE,w:TILE,h:TILE,type:p===ph-1?'pipetop':'pipe'});
+      tiles.push({x:tx*TILE,y:GY-(p+1)*TILE,w:TILE,h:TILE,type:p===ph-1?'pipetop':'pipe'});
   });
-
+  // Coins
   [[5,7],[6,7],[8,7],[10,7],[11,7],[13,9],[14,9],
    [32,9],[33,9],[36,7],[37,7],[25,8],[26,8]].forEach(([tx,ty])=>
-    coins.push({x:tx*TILE+TILE/2,y:GROUND_Y-ty*TILE+TILE/2,r:9,got:false}));
-
+    coins.push({x:tx*TILE+TILE/2,y:GY-ty*TILE+TILE/2,r:9,got:false}));
+  // Enemies
   [9,16,21,26,34,40].forEach((tx,i)=>
-    enemies.push({x:tx*TILE,y:GROUND_Y-36,w:36,h:36,
-      vx:-(1+i*0.15),vy:0,onGround:false,alive:true,frame:0,
-      squished:false,sqTimer:0}));
+    enemies.push({x:tx*TILE,y:GY-36,w:36,h:36,
+      vx:-(1+i*0.15),vy:0,onGround:false,alive:true,frame:0,squished:false,sqT:0}));
 
-  return {tiles,enemies,coins,qblocks,
-    player:{x:80,y:GROUND_Y-60,w:32,h:44,vx:0,vy:0,
-      onGround:false,dir:1,frame:0,fTimer:0,dead:false,dTimer:0},
-    cam:{x:0},score:0,coins:0,lives:3,particles:[],won:false};
+  return {tiles,enemies,coins,
+    p:{x:80,y:GY-60,w:32,h:44,vx:0,vy:0,onGround:false,dir:1,frame:0,fT:0,dead:false,dT:0},
+    cam:0, score:0, coins:0, lives:3, parts:[], won:false};
 }
 
-function overlap(a,b){
-  return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
-}
+// ─── Collision ───────────────────────────────────────────────
+function hit(a,b){ return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y; }
 
-function resolveTiles(ent, tiles, onHitTop){
+function resolve(ent,tiles,onTop){
   ent.onGround=false;
   for(const t of tiles){
-    if(!overlap(ent,t)) continue;
+    if(!hit(ent,t)) continue;
     const ox=Math.min(ent.x+ent.w,t.x+t.w)-Math.max(ent.x,t.x);
     const oy=Math.min(ent.y+ent.h,t.y+t.h)-Math.max(ent.y,t.y);
     if(oy<=ox){
-      if(ent.vy>=0 && ent.y+ent.h-ent.vy<=t.y+4){
-        ent.y=t.y-ent.h; ent.vy=0; ent.onGround=true;
-      } else if(ent.vy<0 && ent.y-ent.vy>=t.y+t.h-4){
-        ent.y=t.y+t.h; ent.vy=0;
-        if(onHitTop) onHitTop(t);
-      }
+      if(ent.vy>=0&&ent.y+ent.h-ent.vy<=t.y+4){ ent.y=t.y-ent.h; ent.vy=0; ent.onGround=true; }
+      else if(ent.vy<0&&ent.y-ent.vy>=t.y+t.h-4){ ent.y=t.y+t.h; ent.vy=0; if(onTop) onTop(t); }
     } else {
-      if(ent.vx>0) ent.x=t.x-ent.w;
-      else if(ent.vx<0) ent.x=t.x+t.w;
-      ent.vx=0;
+      if(ent.vx>0) ent.x=t.x-ent.w; else ent.x=t.x+t.w; ent.vx=0;
     }
   }
 }
 
-let gameRunning=false;
-let G;
+// ─── Game loop ───────────────────────────────────────────────
+let running=false, G=null;
 
 function startGame(){
   G=buildLevel();
-  gameRunning=true;
-  document.getElementById('msg').textContent='← → Bewegen  |  SPACE / ↑ Springen';
-  requestAnimationFrame(tick);
+  running=true;
+  document.getElementById('msg').textContent='◀ ▶ Bewegen  |  JUMP Springen';
+  requestAnimationFrame(loop);
 }
 
-function tick(){
-  if(!gameRunning) return;
-  update();
-  draw();
-  requestAnimationFrame(tick);
+function loop(){
+  if(!running) return;
+  update(); draw();
+  requestAnimationFrame(loop);
 }
 
 function update(){
-  const p=G.player;
+  const g=G, p=g.p;
 
   if(p.dead){
-    p.vy+=0.55; p.y+=p.vy;
-    if(--p.dTimer<=0){
-      G.lives--;
-      if(G.lives<=0){ endGame('GAME OVER — ENTER zum Neustart'); return; }
-      Object.assign(p,{x:80,y:GROUND_Y-60,vx:0,vy:0,dead:false,onGround:false});
+    p.vy=Math.min(p.vy+0.55,16); p.y+=p.vy;
+    if(--p.dT<=0){
+      g.lives--;
+      if(g.lives<=0){endGame('GAME OVER — JUMP zum Neustart');return;}
+      Object.assign(p,{x:80,y:GY-60,vx:0,vy:0,dead:false,onGround:false});
     }
     updateHUD(); return;
   }
 
-  if(keys['ArrowLeft']){p.vx=-3.5;p.dir=-1;}
-  else if(keys['ArrowRight']){p.vx=3.5;p.dir=1;}
+  // Horizontal move
+  if(keys.left){p.vx=-3.5;p.dir=-1;}
+  else if(keys.right){p.vx=3.5;p.dir=1;}
   else p.vx*=0.72;
 
-  if((keys['Space']||keys['ArrowUp'])&&p.onGround){p.vy=-13;p.onGround=false;}
+  // Jump (only once per press)
+  if(keys.jump && !jumpConsumed && p.onGround){ p.vy=-13; jumpConsumed=true; }
+  if(!keys.jump) jumpConsumed=false;
 
   p.vy=Math.min(p.vy+0.55,16);
   p.x+=p.vx; p.y+=p.vy;
   if(p.x<0){p.x=0;p.vx=0;}
 
-  resolveTiles(p, G.tiles, t=>{
+  resolve(p,g.tiles,t=>{
     if(t.type==='question'&&!t.hit){
-      t.hit=true; t.type='used'; G.score+=100; G.coins++;
-      G.particles.push({x:t.x+TILE/2,y:t.y-10,vy:-5,life:40,type:'coin'});
+      t.hit=true; t.type='used'; g.score+=100; g.coins++;
+      g.parts.push({x:t.x+TILE/2,y:t.y-10,vy:-5,life:40,type:'coin'});
     }
   });
 
-  G.cam.x=Math.max(0,p.x-W/3);
+  g.cam=Math.max(0,p.x-W/3);
+  if(p.y>H+80){p.dead=true;p.vy=-14;p.dT=80;}
 
-  if(p.y>H+80){p.dead=true;p.vy=-14;p.dTimer=80;}
+  if(Math.abs(p.vx)>0.5){p.fT++;if(p.fT>7){p.frame++;p.fT=0;}}else p.frame=0;
 
-  if(Math.abs(p.vx)>0.5){p.fTimer++;if(p.fTimer>7){p.frame++;p.fTimer=0;}}
-  else p.frame=0;
-
-  for(const e of G.enemies){
+  // Enemies
+  for(const e of g.enemies){
     if(!e.alive) continue;
-    if(e.squished){if(--e.sqTimer<=0)e.alive=false;continue;}
-    e.vy=Math.min(e.vy+0.55,16);
-    e.x+=e.vx; e.y+=e.vy;
-    resolveTiles(e, G.tiles, null);
-    if(e.x<0||!e.onGround) e.vx*=-1;
+    if(e.squished){if(--e.sqT<=0)e.alive=false;continue;}
+    e.vy=Math.min(e.vy+0.55,16); e.x+=e.vx; e.y+=e.vy;
+    resolve(e,g.tiles,null);
+    if(e.x<0) e.vx=Math.abs(e.vx);
+    if(!e.onGround&&e.vy>0) e.vx*=-1; // turn at ledge (imperfect but fun)
     e.frame+=0.12;
-    if(!p.dead&&overlap(p,{x:e.x,y:e.y,w:e.w,h:e.h})){
-      const stomp=p.vy>0&&(p.y+p.h)<(e.y+e.h*0.55);
-      if(stomp){
-        e.squished=true;e.sqTimer=18;p.vy=-9;G.score+=200;
-        G.particles.push({x:e.x+e.w/2,y:e.y,vy:-4,life:28,type:'pts',val:200});
-      } else {
-        p.dead=true;p.vy=-13;p.dTimer=85;
-      }
+    if(!p.dead&&hit(p,{x:e.x,y:e.y,w:e.w,h:e.h})){
+      if(p.vy>0&&p.y+p.h<e.y+e.h*0.55){
+        e.squished=true;e.sqT=18;p.vy=-9;g.score+=200;
+        g.parts.push({x:e.x+e.w/2,y:e.y,vy:-4,life:28,type:'pts',val:200});
+      } else { p.dead=true;p.vy=-13;p.dT=85; }
     }
   }
 
-  for(const c of G.coins){
+  // Coins
+  for(const c of g.coins)
     if(!c.got&&Math.hypot(p.x+p.w/2-c.x,p.y+p.h/2-c.y)<c.r+14){
-      c.got=true;G.score+=50;G.coins++;
-      G.particles.push({x:c.x,y:c.y-5,vy:-5,life:25,type:'coin'});
+      c.got=true;g.score+=50;g.coins++;
+      g.parts.push({x:c.x,y:c.y-5,vy:-5,life:25,type:'coin'});
     }
-  }
 
-  for(const pt of G.particles){pt.y+=pt.vy;pt.vy+=0.2;pt.life--;}
-  G.particles=G.particles.filter(pt=>pt.life>0);
+  for(const pt of g.parts){pt.y+=pt.vy;pt.vy+=0.2;pt.life--;}
+  g.parts=g.parts.filter(pt=>pt.life>0);
 
-  if(p.x>58*TILE){G.won=true;endGame('LEVEL GESCHAFFT! 🎉  ENTER zum Neustart');}
-
+  if(p.x>59*TILE){g.won=true;endGame('LEVEL GESCHAFFT! 🎉 JUMP zum Neustart');}
   updateHUD();
 }
 
@@ -327,45 +398,49 @@ function updateHUD(){
 }
 
 function endGame(txt){
-  gameRunning=false;
+  running=false;
   document.getElementById('msg').textContent=txt;
   draw();
-  document.addEventListener('keydown',function restart(e){
-    if(e.code==='Enter'||e.code==='Space'){
-      document.removeEventListener('keydown',restart);
-      startGame();
-    }
-  });
+  // restart via any jump input
+  const restart = e => {
+    if(e.code==='Enter'||e.code==='Space'){document.removeEventListener('keydown',restart);startGame();}
+  };
+  document.addEventListener('keydown',restart);
+  // touch restart via jump button
+  document.getElementById('jumpBtn').addEventListener('touchstart',function once(e){
+    e.preventDefault();
+    document.getElementById('jumpBtn').removeEventListener('touchstart',once);
+    startGame();
+  },{passive:false,once:true});
 }
 
+// ─── Draw ────────────────────────────────────────────────────
 function draw(){
+  const cam=G?G.cam:0;
+  ctx.fillStyle=C.sky; ctx.fillRect(0,0,W,H);
+
+  // BG decor
+  [[80,55],[260,45],[440,70],[620,50],[760,60]].forEach(([cx,cy])=>drawCloud(cx-cam*0.25,cy));
+  [[160,GY,70],[370,GY,55],[570,GY,80]].forEach(([hx,hy,hr])=>drawHill(hx-cam*0.5,hy,hr));
+
   if(!G){
-    ctx.fillStyle=COL.sky; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#fff'; ctx.font='bold 18px monospace'; ctx.textAlign='center';
-    ctx.fillText('Drücke ENTER oder SPACE zum Starten',W/2,H/2);
+    ctx.fillStyle='#fff'; ctx.font='bold 17px monospace'; ctx.textAlign='center';
+    ctx.fillText('Tippe JUMP oder SPACE zum Starten',W/2,H/2);
     return;
   }
-  const cam=G.cam.x;
-  ctx.fillStyle=COL.sky; ctx.fillRect(0,0,W,H);
 
-  [[80,60],[260,50],[440,75],[620,55],[760,65]].forEach(([cx,cy])=>
-    drawCloud(cx-cam*0.25,cy));
-  [[160,GROUND_Y,70],[380,GROUND_Y,55],[580,GROUND_Y,80]].forEach(([hx,hy,hr])=>
-    drawHill(hx-cam*0.5,hy,hr));
+  ctx.save(); ctx.translate(-cam,0);
 
-  ctx.save();
-  ctx.translate(-cam,0);
-
-  // Flagge
-  const fx=59*TILE+20;
-  r(fx,GROUND_Y-220,4,220,COL.flagPole);
-  ctx.fillStyle=COL.flag;
-  ctx.beginPath(); ctx.moveTo(fx+4,GROUND_Y-220); ctx.lineTo(fx+4,GROUND_Y-175); ctx.lineTo(fx+50,GROUND_Y-200); ctx.closePath(); ctx.fill();
+  // End flag
+  const fx=60*TILE+20;
+  box(fx,GY-220,4,220,C.flagP);
+  ctx.fillStyle=C.flagC;
+  ctx.beginPath(); ctx.moveTo(fx+4,GY-220); ctx.lineTo(fx+4,GY-175); ctx.lineTo(fx+50,GY-200); ctx.closePath(); ctx.fill();
 
   for(const t of G.tiles) drawTile(t.x,t.y,t.type);
   for(const c of G.coins) if(!c.got) drawCoin(c.x,c.y,c.r);
 
-  for(const pt of G.particles){
+  for(const pt of G.parts){
     if(pt.type==='coin') drawCoin(pt.x,pt.y,7);
     else if(pt.type==='pts'){
       ctx.fillStyle='#fff'; ctx.font='bold 11px monospace';
@@ -374,14 +449,12 @@ function draw(){
   }
 
   for(const e of G.enemies) if(e.alive) drawGoomba(e.x,e.y,e.frame,e.squished);
-
-  const p=G.player;
-  drawMario(p.x,p.y,p.dir,p.frame,p.dead);
+  drawMario(G.p.x,G.p.y,G.p.dir,G.p.frame,G.p.dead);
 
   ctx.restore();
 }
 
-// Startscreen
+// Initial screen
 draw();
 </script>
 </body>
